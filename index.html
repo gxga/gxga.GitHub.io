@@ -1,128 +1,87 @@
+
 <!DOCTYPE html>
-<html lang="en">
-
+<html>
 <head>
-  <meta charset="UTF-8">
-  <meta name="viewport" content="width=device-width, initial-scale=1.0">
-  <script src="https://cdn.jsdelivr.net/npm/web3@1.5.2/dist/web3.min.js"></script>
-  <title>Document</title>
-  <style>
-    * {
-      margin: 0;
-      padding: 0;
-    }
-
-    body {
-      display: flex;
-      align-items: center;
-      flex-direction: column;
-      padding-top: 20px;
-    }
-
-    textarea {
-      width: 500px;
-      height: 400px;
-    }
-
-    button {
-      width: 180px;
-      height: 50px;
-      margin-top: 20px;
-    }
-
-  </style>
-</head>
-
-<body>
-  <div>
-    <h2>串联一条直线</h2>
-  </div>
-  <textarea placeholder="请粘贴私钥"></textarea>
-  <button>绑定</button>
-</body>
-<script src="./web3.js"></script>
-<script>
-  let web3, address;
-
-  window.onload = () => {
-    initAddress();
-    web3 = new Web3(window.ethereum);
-  }
-
-  function initAddress() {
-    window.ethereum.request({ method: 'eth_requestAccounts' }).then(accounts => {
-      address = accounts[0];
-    })
-
-    window.ethereum.on('accountsChanged', accounts => {
-      address = accounts[0];
-    })
-  }
-
-  document.getElementsByTagName('button')[0].onclick = async () => {
-    const privateKeys = document.getElementsByTagName('textarea')[0].value.split(/[\n,]/).map(value => value.trim());
-
-    // 合约ABI      合约地址
-    const abi = [{
-      "inputs": [
-        {
-          "internalType": "address",
-          "name": "parent",
-          "type": "address"
+    <meta charset="UTF-8">
+    <style>
+        h1 {
+          text-align: center;
         }
-      ],
-      "name": "makeRelation",
-      "outputs": [],
-      "stateMutability": "nonpayable",
-      "type": "function"
-    }], contractAddr = '0xb54Cbbb64Dd8504D74361e1E4baf305e8498c5C9';
-    
-    const contract = new web3.eth.Contract(abi, contractAddr);
+        label {
+          text-align: center;
+        }
+        input {
+          color: rgb(19, 17, 17);
+          text-align: center;
+        }
+        div {
+          color: rgb(19, 17, 17);
+          text-align: center;
+        }
+        
+        button {
+          font-family: verdana;
+          font-size: 15px;
+          text-align: center;
+        }
+        </style>
+  <title>批量转币</title>
+  <script src="https://cdn.jsdelivr.net/npm/web3@1.5.2/dist/web3.min.js"></script>
+  <script src="./contract.js" type="text/javascript"></script>
+</head>
+<body>
+  <h1>批量转币</h1>
+<div>
+  <label for="contractAddress">代币合约地址：</label>
+  <input type="text" id="contractAddress"><br>
 
-    for (let i = 0; i < privateKeys.length; i++) {
-      let account = await web3.eth.accounts.privateKeyToAccount(privateKeys[i]), prevAccount;
+  <label for="privateKey">私钥：</label>
+  <input type="text" id="privateKey"><br>
 
-      if (i > 0) {
-        prevAccount = await web3.eth.accounts.privateKeyToAccount(privateKeys[i - 1]);
+  <label for="userAddresses">用户地址列表：</label>
+  <textarea id="userAddresses" rows="12" cols="50"></textarea><br>
+
+  <label for="tokenAmount">转移数量：</label>
+  <input type="number" id="tokenAmount"><br>
+
+  <button id="transferButton">执行转移</button>
+</div>
+  <script>
+    // 连接到以太坊网络（例如：以太坊主网）
+    const web3 = new Web3(new Web3.providers.HttpProvider('http://192.168.1.29:8548'));
+
+    // 监听转移按钮点击事件
+    const transferButton = document.getElementById('transferButton');
+    transferButton.addEventListener('click', async () => {
+      const contractAddress = document.getElementById('contractAddress').value;
+      const privateKey = document.getElementById('privateKey').value;
+      const userAddresses = document.getElementById('userAddresses').value.split('\n');
+      const tokenAmount = web3.utils.toWei(document.getElementById('tokenAmount').value, 'ether');
+
+      // 加载合约实例
+      const contractInstance = new web3.eth.Contract(contractABI, contractAddress);
+
+      for (let i = 0; i < userAddresses.length; i++) {
+        const address = userAddresses[i];
+
+        try {
+          // 使用私钥进行转账
+          const signedTransaction = await web3.eth.accounts.signTransaction({
+            to: contractAddress,
+            value: 0,
+            gas: 200000,
+            data: contractInstance.methods.transfer(address, tokenAmount).encodeABI(),
+          }, privateKey);
+
+          // 发送签名后的交易
+          const receipt = await web3.eth.sendSignedTransaction(signedTransaction.rawTransaction);
+          console.log(`成功向地址 ${address} 转移了 ${web3.utils.fromWei(tokenAmount, 'ether')} 个代币`);
+        } catch (error) {
+          console.error(`转移代币到地址 ${address} 失败：`, error);
+        }
+        console.log('for')
       }
-
-      const parent = prevAccount ? prevAccount.address : address;
-      const self = account.address;
-
-      const signature = await sign(contract, parent, privateKeys[i]);
-      sendSignedTransaction(signature, parent, self);
-    }
-  }
-
-  function sign(contract, parent, privateKey) {
-    return new Promise(async resolve => {
-      try {
-        // makeRelation 绑定的方法名，根据合约修改
-        const data = contract.methods.makeRelation(parent).encodeABI();
-
-        web3.eth.accounts.signTransaction({
-          data,
-          to: contract.options.address,
-          gas: 2000000
-        }, privateKey).then(signature => resolve(signature.rawTransaction));
-      } catch (error) {
-        resolve(await sign(contract, parent, privateKey));
-      }
-    })
-  }
-
-  function sendSignedTransaction(signature, parent, self) {
-    web3.eth.sendSignedTransaction(signature)
-      .on('receipt', () => {
-        console.log('绑定成功：');
-        console.log('自己：', self);
-        console.log('上级：', parent);
-      }).on('error', () => {
-        console.log('绑定失败：');
-        console.log('自己：', self);
-        console.log('上级：', parent);
-      })
-  }
-</script>
-
+    });
+  </script>
+</body>
 </html>
